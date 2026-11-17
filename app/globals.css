@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --zoe-purple: #6B21A8;
+  --zoe-fuchsia: #D946EF;
+  --zoe-bg: #0B0714;
+  --zoe-bg-card: #181226;
+  --zoe-border: #2A1F3D;
+  --zoe-text: #F5F3FF;
+  --zoe-text-muted: #A79BC2;
+}
+
+html,
+body {
+  background-color: var(--zoe-bg);
+  color: var(--zoe-text);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.zoe-gradient-text {
+  background: linear-gradient(135deg, var(--zoe-purple) 0%, var(--zoe-fuchsia) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.zoe-gradient-bg {
+  background: linear-gradient(135deg, var(--zoe-purple) 0%, var(--zoe-fuchsia) 100%);
+}
+
+.zoe-card {
+  background-color: var(--zoe-bg-card);
+  border: 1px solid var(--zoe-border);
+  border-radius: 1rem;
+  padding: 1.5rem;
+}
