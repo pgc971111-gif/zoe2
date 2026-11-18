@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
+import { authenticatedPost } from "../../lib/authenticated-fetch";
 
 export default function LaboratorioIA() {
   const [prompt, setPrompt] = useState("");
@@ -14,11 +15,7 @@ export default function LaboratorioIA() {
     setResultados(null);
 
     try {
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt }),
-      });
+      const res = await authenticatedPost("/api/chat", { prompt });
       const data = await res.json();
       setResultados(data);
     } catch (error) {

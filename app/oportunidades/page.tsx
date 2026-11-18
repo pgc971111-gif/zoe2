@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { supabase } from "../../lib/supabase";
+import { providerPost, readApiError } from "../../lib/authenticated-fetch";
 import { useRouter } from "next/navigation";
 
 interface IdeaRadar {
@@ -20,6 +21,17 @@ interface OportunidadGuardada extends IdeaRadar {
   id: number;
   sesion_id: string;
   created_at: string;
+  probabilidad_exito?: number;
+  analisis_zoe?: string;
+}
+
+interface AnalisisZoe {
+  analisis: {
+    titulo: string;
+    viabilidad: number;
+    prob_exito: number;
+    justificacion_zoe: string;
+  }[];
 }
 
 export default function OportunidadesPage() {
@@ -61,11 +73,8 @@ export default function OportunidadesPage() {
     setCargando(true); setError(""); setResultadosActuales([]); setEstadoIA("RADAR está buscando en internet...");
 
     try {
-      const resRadar = await fetch("/api/radar", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ objetivo })
-      });
+      const resRadar = await providerPost("/api/radar", { objetivo });
+      if (!resRadar.ok) throw new Error(await readApiError(resRadar, `No se pudo investigar (HTTP ${resRadar.status}).`));
       const dataRadar = await resRadar.json();
       
       if (!dataRadar.success) throw new Error(dataRadar.error || "RADAR no encontró ideas.");
@@ -77,7 +86,7 @@ export default function OportunidadesPage() {
       Asigna viabilidad (0-100), probabilidad de éxito (0-100) y justificación breve para cada idea.
       Devuelve ÚNICAMENTE este JSON: { "analisis": [ { "titulo": "Título original", "viabilidad": 85, "prob_exito": 70, "justificacion_zoe": "..." } ] }`;
 
-      let dataAnalisis = null;
+      let dataAnalisis: AnalisisZoe | null = null;
       let iaZoeUsada = "Gemini";
       let intentos = 0;
 
@@ -86,32 +95,40 @@ export default function OportunidadesPage() {
         setEstadoIA(`ZOE analizando (Intento ${intentos}): Solicitando a Gemini...`);
         
         try {
-          const res = await fetch("/api/chat", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ prompt: promptZOE, forzarModelo: "gemini" })
-          });
+          const res = await providerPost("/api/chat", { prompt: promptZOE, forzarModelo: "gemini" });
+          if (!res.ok) {
+            const message = await readApiError(res, `Gemini no pudo analizar (HTTP ${res.status}).`);
+            if (res.status === 401 || res.status === 503) throw new Error(message);
+            throw new Error(message);
+          }
           const data = await res.json();
           if (res.status === 200 && data.gemini) {
-            dataAnalisis = extraerJSON(data.gemini);
+            dataAnalisis = extraerJSON(data.gemini) as AnalisisZoe;
             break;
           }
-        } catch (e) { console.error("Fallo Gemini", e); }
+        } catch (e) {
+          if (e instanceof Error && (e.message.includes("Supabase") || e.message.includes("sesión") || e.message.includes("Inicia sesión"))) throw e;
+          console.error("Fallo Gemini", e);
+        }
 
         setEstadoIA(`Gemini ocupado. Solicitando a Groq...`);
         try {
-          const res = await fetch("/api/chat", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ prompt: promptZOE, forzarModelo: "groq" })
-          });
+          const res = await providerPost("/api/chat", { prompt: promptZOE, forzarModelo: "groq" });
+          if (!res.ok) {
+            const message = await readApiError(res, `Groq no pudo analizar (HTTP ${res.status}).`);
+            if (res.status === 401 || res.status === 503) throw new Error(message);
+            throw new Error(message);
+          }
           const data = await res.json();
           if (res.status === 200 && data.groq) {
-            dataAnalisis = extraerJSON(data.groq);
+            dataAnalisis = extraerJSON(data.groq) as AnalisisZoe;
             iaZoeUsada = "Groq";
             break;
           }
-        } catch (e) { console.error("Fallo Groq", e); }
+        } catch (e) {
+          if (e instanceof Error && (e.message.includes("Supabase") || e.message.includes("sesión") || e.message.includes("Inicia sesión"))) throw e;
+          console.error("Fallo Groq", e);
+        }
 
         if (!dataAnalisis && intentos < 3) {
           setEstadoIA(`Ambas IAs ocupadas. Esperando 15s... (Intento ${intentos}/3)`);
@@ -124,8 +141,9 @@ export default function OportunidadesPage() {
       }
 
       const sesionId = Date.now().toString();
+      const analisisResultados = dataAnalisis.analisis;
       const ideasCompletas = ideasCrudas.map((idea: any) => {
-        const analisis = dataAnalisis.analisis.find((a: any) => a.titulo === idea.titulo);
+        const analisis = analisisResultados.find((a: any) => a.titulo === idea.titulo);
         return {
           ...idea,
           viabilidad: analisis?.viabilidad || 0,
@@ -167,7 +185,7 @@ export default function OportunidadesPage() {
       objetivo: op.titulo, 
       estado: "sin_planificar",
       viabilidad: op.viabilidad || 0,
-      probabilidad_exito: op.prob_exito || 0,
+      probabilidad_exito: op.prob_exito ?? op.probabilidad_exito ?? 0,
       justificacion: op.justificacion_zoe || "N/A",
       resultado: null 
     };
@@ -216,7 +234,7 @@ export default function OportunidadesPage() {
                     <div style={{ fontSize: "1.2rem", fontWeight: 800, color: getColor(op.prob_exito || 0) }}>{op.prob_exito}%</div>
                   </div>
                 </div>
-                <div style={{ fontSize: "0.8rem", marginBottom: "1rem", color: "var(--zoe-text-muted)", fontStyle: "italic" }}>"{op.justificacion_zoe}"</div>
+                <div style={{ fontSize: "0.8rem", marginBottom: "1rem", color: "var(--zoe-text-muted)", fontStyle: "italic" }}>&ldquo;{op.justificacion_zoe}&rdquo;</div>
                 <button onClick={() => moverAProcesos(op)} className="zoe-gradient-bg" style={{ width: "100%", padding: "0.6rem", borderRadius: "0.5rem", color: "white", fontWeight: 600, border: "none", cursor: "pointer" }}>Seleccionar para Planificar →</button>
               </div>
             ))}
@@ -245,7 +263,7 @@ export default function OportunidadesPage() {
                     </div>
                     <div style={{ backgroundColor: "rgba(255,255,255,0.05)", padding: "0.5rem", borderRadius: "0.5rem", textAlign: "center" }}>
                       <div style={{ fontSize: "0.7rem", color: "var(--zoe-text-muted)" }}>🎯 Éxito</div>
-                      <div style={{ fontSize: "1.2rem", fontWeight: 800, color: getColor(op.prob_exito || 0) }}>{op.prob_exito}%</div>
+                      <div style={{ fontSize: "1.2rem", fontWeight: 800, color: getColor(op.prob_exito ?? op.probabilidad_exito ?? 0) }}>{op.prob_exito ?? op.probabilidad_exito ?? 0}%</div>
                     </div>
                   </div>
 
@@ -255,7 +273,7 @@ export default function OportunidadesPage() {
                   </div>
 
                   <div style={{ fontSize: "0.8rem", marginBottom: "1rem", color: "var(--zoe-text)", fontStyle: "italic", backgroundColor: "rgba(0,0,0,0.2)", padding: "0.5rem", borderRadius: "0.5rem" }}>
-                    "{op.justificacion_zoe || op.analisis_zoe}"
+                    &ldquo;{op.justificacion_zoe || op.analisis_zoe}&rdquo;
                   </div>
 
                   <button onClick={() => moverAProcesos(op)} style={{ marginTop: "auto", width: "100%", padding: "0.6rem", borderRadius: "0.5rem", backgroundColor: "transparent", color: "#3B82F6", border: "1px solid #3B82F6", cursor: "pointer", fontWeight: 600 }}>
@@ -265,8 +283,7 @@ export default function OportunidadesPage() {
               ))}
             </div>
           </div>
-        ))
-      )}
+        ))}
     </div>
   );
 }

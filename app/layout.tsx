@@ -1,6 +1,7 @@
 "use client";
 import { usePathname } from "next/navigation";
 import Sidebar from "../components/Sidebar";
+import { SupabaseAuthProvider } from "../components/SupabaseAuthProvider";
 import "./globals.css";
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -10,10 +11,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="es">
       <body style={{ display: "flex", minHeight: "100vh", backgroundColor: "var(--zoe-bg)", margin: 0 }}>
-        {!isLanding && <Sidebar />}
-        <main style={{ flex: 1, padding: !isLanding ? "2rem" : "0", overflowY: "auto", height: "100vh" }}>
-          {children}
-        </main>
+        <SupabaseAuthProvider>
+          {!isLanding && <Sidebar />}
+          <main style={{ flex: 1, padding: !isLanding ? "2rem" : "0", overflowY: "auto", height: "100vh" }}>
+            {children}
+          </main>
+        </SupabaseAuthProvider>
       </body>
     </html>
   );

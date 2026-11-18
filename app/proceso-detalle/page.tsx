@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect, useRef, Suspense } from "react";
+import { useState, useEffect, useRef, Suspense, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "../../lib/supabase";
+import { authenticatedPost } from "../../lib/authenticated-fetch";
 import Link from "next/link";
 
 interface Tarea {
@@ -30,7 +31,7 @@ function DetalleProcesoContent() {
 
   const isRunning = useRef(false);
 
-  const cargarDatos = async () => {
+  const cargarDatos = useCallback(async () => {
     if (!id) return;
     try {
       const resProc = await supabase.from("procesos").select("objetivo").eq("id", id).single();
@@ -43,9 +44,9 @@ function DetalleProcesoContent() {
     } finally {
       setCargando(false);
     }
-  };
+  }, [id]);
 
-  useEffect(() => { cargarDatos(); }, [id]);
+  useEffect(() => { cargarDatos(); }, [cargarDatos]);
 
   const generarPrompt = (objetivoGral: string, tarea: Tarea, contexto: string) => {
     return `IDENTIDAD:
@@ -135,11 +136,7 @@ E. ESTADO: Escribe SOLO una de estas tres opciones: COMPLETADA, PARCIALMENTE COM
         const contextoAnterior = tareasCompletadas.map(t => `- Tarea: ${t.titulo}\n  Resultado: ${t.resultado}`).join("\n\n");
         const prompt = generarPrompt(objetivo, tareaPendiente, contextoAnterior);
 
-        const res = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt }),
-        });
+        const res = await authenticatedPost("/api/chat", { prompt });
         const data = await res.json();
 
         if (res.status === 429) {
@@ -154,8 +151,11 @@ E. ESTADO: Escribe SOLO una de estas tres opciones: COMPLETADA, PARCIALMENTE COM
           return;
         }
 
-        if (data.error) throw new Error(data.error);
-        const exito = await procesarResultado(tareaPendiente.id, data.texto, intervalId);
+        const textoIA = data.gemini || data.groq;
+        if (data.error || typeof textoIA !== "string") {
+          throw new Error(data.error || "La IA no devolvió un resultado de texto.");
+        }
+        const exito = await procesarResultado(tareaPendiente.id, textoIA, intervalId);
 
         if (exito) {
           setTimeout(async () => {
@@ -181,7 +181,7 @@ E. ESTADO: Escribe SOLO una de estas tres opciones: COMPLETADA, PARCIALMENTE COM
       }
     };
     ejecutarTarea();
-  }, [autoMode, tareas, id, objetivo]);
+  }, [autoMode, tareas, id, objetivo, cargarDatos]);
 
   const ejecutarManual = async (tarea: Tarea) => {
     setEjecutandoId(tarea.id);
@@ -193,16 +193,22 @@ E. ESTADO: Escribe SOLO una de estas tres opciones: COMPLETADA, PARCIALMENTE COM
     const contextoAnterior = tareasCompletadas.map(t => `- Tarea: ${t.titulo}\n  Resultado: ${t.resultado}`).join("\n\n");
     const prompt = generarPrompt(objetivo, tarea, contextoAnterior);
     
-    const res = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt }) });
+    const res = await authenticatedPost("/api/chat", { prompt });
     const data = await res.json();
+    const textoIA = data.gemini || data.groq;
 
     if (res.status === 429) {
       clearInterval(intervalId);
       setTaskProgress(prev => ({ ...prev, [tarea.id]: 0 }));
       setError("Límite de tokens alcanzado.");
       await supabase.from("tareas").update({ estado: "pendiente" }).eq("id", tarea.id);
-    } else if (!data.error) {
-      await procesarResultado(tarea.id, data.texto, intervalId);
+    } else if (!data.error && typeof textoIA === "string") {
+      await procesarResultado(tarea.id, textoIA, intervalId);
+    } else {
+      clearInterval(intervalId);
+      setTaskProgress(prev => ({ ...prev, [tarea.id]: 0 }));
+      setError(data.error || "La IA no devolvió un resultado de texto.");
+      await supabase.from("tareas").update({ estado: "pendiente" }).eq("id", tarea.id);
     }
     
     setEjecutandoId(null);

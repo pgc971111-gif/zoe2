@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { supabase } from "../../lib/supabase";
+import { providerPost, readApiError } from "../../lib/authenticated-fetch";
 import Link from "next/link";
 
 interface Proceso {
@@ -58,7 +59,8 @@ export default function ProcesosPage() {
       Genera un plan de ejecución comparando dos escenarios.
       JSON requerido: { "escenario_cero": { "inversion_total": 0, "viabilidad": { "valor": 80, "explicacion": "..." }, "probabilidad_exito": { "valor": 60, "explicacion": "..." }, "herramientas": ["..."], "desglose": [ {"item": "...", "costo": 0} ] }, "escenario_maximo": { "inversion_total": 50, "viabilidad": { "valor": 90, "explicacion": "..." }, "probabilidad_exito": { "valor": 85, "explicacion": "..." }, "herramientas": ["..."], "desglose": [ {"item": "...", "costo": 10} ] }, "tiempo_primer_cliente": "2 semanas", "tareas": [ { "titulo": "Tarea 1", "instrucciones_detalladas": "...", "orden": 1 } ], "conclusion": "...", "siguiente_paso": "..." }`;
       
-      const res = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt }) });
+      const res = await providerPost("/api/chat", { prompt });
+      if (!res.ok) throw new Error(await readApiError(res, `No se pudo generar el plan (HTTP ${res.status}).`));
       setProgreso(50);
       setMensajeEstado("Calculando herramientas y tareas...");
 
@@ -97,7 +99,7 @@ export default function ProcesosPage() {
       setTimeout(() => { setGenerandoId(null); setProgreso(0); setMensajeEstado(""); }, 1000);
 
     } catch (err) {
-      alert("Error generando el plan. Intenta de nuevo.");
+      alert(err instanceof Error ? err.message : "Error generando el plan. Intenta de nuevo.");
       setGenerandoId(null); setProgreso(0); setMensajeEstado("");
     }
   };
@@ -125,7 +127,7 @@ export default function ProcesosPage() {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1rem" }}>
                   <div>
                     <h3 style={{ fontWeight: 800, fontSize: "1.25rem", margin: 0, color: "white" }}>🎯 {p.objetivo}</h3>
-                    <p style={{ fontSize: "0.85rem", color: "var(--zoe-text-muted)", marginTop: "0.3rem", fontStyle: "italic" }}>"{p.justificacion}"</p>
+                    <p style={{ fontSize: "0.85rem", color: "var(--zoe-text-muted)", marginTop: "0.3rem", fontStyle: "italic" }}>&ldquo;{p.justificacion}&rdquo;</p>
                   </div>
                   {data && (
                     <Link href={`/proceso-detalle?id=${p.id}`} style={{ fontSize: "0.75rem", padding: "0.4rem 0.8rem", borderRadius: "0.5rem", border: "1px solid #10B981", color: "#10B981", backgroundColor: "rgba(16, 185, 129, 0.1)", textDecoration: "none", fontWeight: 600 }}>📋 Gestionar Tareas</Link>
@@ -189,7 +191,7 @@ export default function ProcesosPage() {
 
                     <details>
                       <summary style={{ cursor: "pointer", fontSize: "0.85rem", color: "var(--zoe-fuchsia)", fontWeight: 600 }}>Ver conclusión y desglose</summary>
-                      <p style={{ fontSize: "0.9rem", color: "var(--zoe-text)", fontStyle: "italic", marginTop: "1rem" }}>"{data.conclusion}"</p>
+                      <p style={{ fontSize: "0.9rem", color: "var(--zoe-text)", fontStyle: "italic", marginTop: "1rem" }}>&ldquo;{data.conclusion}&rdquo;</p>
                     </details>
                   </div>
                 )}
